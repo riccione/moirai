@@ -45,12 +45,16 @@ fn udp_listener() {
 }
 
 fn read_data(mut x: TcpStream) {
-    let mut rx_bytes = [0u8; MSG_SIZE];
+    // let mut rx_bytes = [0u8; MSG_SIZE];
     let mut reader = io::BufReader::new(&mut x);
     
     match reader.fill_buf() {
         Ok(x) => {
-            print_bytes(x);
+            // for debug only
+            // print_bytes(x);
+            if x.len() > 0 {
+                let _ = forward(x);
+            }
         }
         Err(e) => {
             eprintln!("{e}");
@@ -75,7 +79,8 @@ fn print_type_of<T>(_: &T) {
     println!("{}", std::any::type_name::<T>())
 }
 
-fn _forward(host: SocketAddr, msg: &[u8]) -> io::Result<()> {
+fn forward(msg: &[u8]) -> io::Result<()> {
+    let host = DST[0];
     let mut stream = TcpStream::connect(host)?;
 
     // write_all() will return Err(io::Error(io::ErrorKind::Interrupted))
