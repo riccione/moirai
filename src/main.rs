@@ -2,31 +2,64 @@ use std::net::{SocketAddr, TcpListener, TcpStream, UdpSocket};
 use std::io::{self, Read, BufRead, Write};
 use std::str;
 use std::thread;
+use toml::Table;
+use std::fs::{File, OpenOptions};
 
 const HOST: &str = "0.0.0.0:8080";
 const MSG_SIZE: usize = 1024;
 const DST: [&str; 2] = ["0.0.0.0:10001", "0.0.0.0:10002"];
+const CONFIG_FILE: &str = "config.toml";
 
 fn main() {
+    read_config();
     thread::spawn( || {
         let _ = tcp_listener();
     });
     let _ = udp_listener();
 }
 
+fn read_config() {
+    let mut file = match OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .open(CONFIG_FILE) {
+            Ok(file) => file,
+            Err(e) => {
+                eprintln!("Error opening or creating config file: {e}");
+                return;
+            }
+        };
+    let mut c = String::new();
+    file.read_to_string(&mut c)
+        .expect("Failed to read file");
+
+    if c.is_empty() {
+        let default_toml = "src = \"0.0.0.0:8080\"\n\
+                            dst = \"0.0.0.0:10001\"\n\
+                            dst = \"0.0.0.0:10002\"\n\
+                            ";
+        file.write_all(default_toml.as_bytes())
+            .expect("Failed to write config toml ");
+    }
+    println!("{c}");
+}
+
 fn tcp_listener() -> io::Result<()> {
     let listener = TcpListener::bind(HOST)?;
-
+    
+    let mut i: usize = 0;
     for stream in listener.incoming() {
         match stream {
             Ok(x) => {
-                read_data(x);
+                read_data(x, i);
             }
             Err(e) => {
                 // connection failed
                 eprintln!("{e}");
             }
         }
+        i += 1;
     }
 
     Ok(())
@@ -39,12 +72,12 @@ fn udp_listener() {
     let mut buf = [0; MSG_SIZE];
     // print_type_of(&buf);
     loop {
-        let (amt, src) = socket.recv_from(&mut buf)
+        let (_amt, _src) = socket.recv_from(&mut buf)
             .expect("Read from socket");
     }
 }
 
-fn read_data(mut x: TcpStream) {
+fn read_data(mut x: TcpStream, i: usize) {
     // let mut rx_bytes = [0u8; MSG_SIZE];
     let mut reader = io::BufReader::new(&mut x);
     
@@ -53,7 +86,7 @@ fn read_data(mut x: TcpStream) {
             // for debug only
             // print_bytes(x);
             if x.len() > 0 {
-                let _ = forward(x);
+                let _ = forward(x, i);
             }
         }
         Err(e) => {
@@ -79,14 +112,18 @@ fn print_type_of<T>(_: &T) {
     println!("{}", std::any::type_name::<T>())
 }
 
-fn forward(msg: &[u8]) -> io::Result<()> {
+fn round_robin(i: usize) -> &'static str {
+    DST[i % DST.len()]
+}
+
+fn forward(msg: &[u8], i: usize) -> io::Result<()> {
     let host = DST[0];
     let mut stream = TcpStream::connect(host)?;
 
     // write_all() will return Err(io::Error(io::ErrorKind::Interrupted))
     // if it is unable to queue all bytes
     stream.write_all(msg)?;
-    stream.flush();
+    let _ = stream.flush();
 
     Ok(())
 }
