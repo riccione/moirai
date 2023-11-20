@@ -4,11 +4,23 @@ use std::str;
 use std::thread;
 use toml::Table;
 use std::fs::{File, OpenOptions};
+use serde::Deserialize;
+use std::collections::HashMap;
 
 const HOST: &str = "0.0.0.0:8080";
 const MSG_SIZE: usize = 1024;
 const DST: [&str; 2] = ["0.0.0.0:10001", "0.0.0.0:10002"];
 const CONFIG_FILE: &str = "config.toml";
+
+#[derive(Debug, Deserialize)]
+struct Config {
+    server: HashMap<String, Server>,
+}
+
+#[derive(Debug, Deserialize)]
+struct Server {
+    dst: String,
+}
 
 fn main() {
     read_config();
@@ -34,15 +46,72 @@ fn read_config() {
     file.read_to_string(&mut c)
         .expect("Failed to read file");
 
-    if c.is_empty() {
-        let default_toml = "src = \"0.0.0.0:8080\"\n\
+    let content = if c.is_empty() {
+        let default_toml = "[servers]\n\
+                            [server.src]\n\
+                            dst = \"0.0.0.0:8080\"\n\
+                            \n\
+                            [server.alpha]\n\
                             dst = \"0.0.0.0:10001\"\n\
+                            [server.beta]\n\
                             dst = \"0.0.0.0:10002\"\n\
                             ";
         file.write_all(default_toml.as_bytes())
             .expect("Failed to write config toml ");
+        default_toml
+    } else {
+        &c
+    }.to_string();
+    // println!("{c}");
+
+    let config: Config = toml::from_str(&content)
+        .expect("Failed to deserialize");
+  
+    println!("{}", config.server["src"].dst);
+    print_type_of(&config.server);
+    for (k, v) in &config.server {
+        println!("Server {k} dst {0}", v.dst);
     }
-    println!("{c}");
+    println!("{:?}", config.server);
+    println!("{:#?}", config);
+    /*
+    // parse toml file
+    let parsed = c.parse::<Table>().unwrap();
+    let it = parsed.iter();
+    for val in it {
+        println!("{:?}", val);
+    }
+    let src = parsed["source"]["src"].as_str().unwrap();
+    //let dst = parsed["server"]["1"]["dst"].as_str().unwrap();
+    
+    let dst = &parsed["server"].as_table();
+    
+    let p: Destination = match dst.try_into() {
+        Ok(x) => x,
+        Err(e) => {
+            eprintln!("{e}");
+            return;
+        }
+    };
+    
+    println!("{:?}", p);
+
+    println!("{}", src);
+    match dst {
+        Some(x) => {
+            for v in x.iter() {
+                println!("{:?}", v);
+            }
+
+            // println!("{:?}", print_type_of(x));
+        },
+        _ => {
+            println!("Dst is not defined");
+        }
+    }
+    //println!("{:?}", dst.as_table());
+    //println!("{}", dst);
+    */
 }
 
 fn tcp_listener() -> io::Result<()> {
