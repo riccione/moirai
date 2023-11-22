@@ -5,32 +5,80 @@ use std::thread;
 use toml::Table;
 use std::fs::{File, OpenOptions};
 use serde::Deserialize;
-use std::collections::HashMap;
+use std::sync::Arc;
 
-const HOST: &str = "0.0.0.0:8080";
+const HOST: &str = "127.0.0.1:8081"; // remove
 const MSG_SIZE: usize = 1024;
-const DST: [&str; 2] = ["0.0.0.0:10001", "0.0.0.0:10002"];
+const DST: [&str; 2] = ["0.0.0.0:10001", "0.0.0.0:10002"]; // remove
 const CONFIG_FILE: &str = "config.toml";
+const DEFAULT_TOML: &str = "[main]\n\
+                            verbose = false\n\
+                            \n\
+                            [source]\n\
+                            host = \"0.0.0.0\"\n\
+                            port = 8080\n\
+                            protocol = \"tcp\"\n\
+                            \n\
+                            [[server]]\n\
+                            host = \"0.0.0.0\"\n\
+                            port = 10001\n\
+                            \n\
+                            [[server]]\n\
+                            host = \"0.0.0.0\"\n\
+                            port = 10002\n\
+                            ";
 
 #[derive(Debug, Deserialize)]
 struct Config {
-    server: HashMap<String, Server>,
+    #[allow(dead_code)]
+    main: Main,
+    #[allow(dead_code)]
+    source: Source,
+    #[allow(dead_code)]
+    server: Vec<Server>,
+}
+
+#[derive(Debug, Deserialize)]
+struct Main {
+    verbose: bool,
+}
+
+#[derive(Debug, Deserialize)]
+struct Source {
+    host: String,
+    port: u16,
+    protocol: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
 struct Server {
-    dst: String,
+    host: String,
+    port: u16,
 }
 
 fn main() {
-    read_config();
-    thread::spawn( || {
-        let _ = tcp_listener();
-    });
-    let _ = udp_listener();
+    let conf = Arc::new(read_config());
+    let tcp_conf = Arc::clone(&conf);
+    println!("{:#?}", conf);
+    match conf.source.protocol.as_deref() {
+        Some("tcp") => {
+            let _ = tcp_listener(tcp_conf);
+        }
+        Some("udp") => {
+            let _ = udp_listener();
+        }
+        _ => {
+            thread::spawn(move || {
+                let _ = tcp_listener(tcp_conf);
+            });
+            
+            println!("{:#?}", conf);
+            let _ = udp_listener();
+        },
+    }    
 }
 
-fn read_config() {
+fn read_config() -> Config {
     let mut file = match OpenOptions::new()
         .read(true)
         .write(true)
@@ -39,7 +87,7 @@ fn read_config() {
             Ok(file) => file,
             Err(e) => {
                 eprintln!("Error opening or creating config file: {e}");
-                return;
+                panic!("No config file");
             }
         };
     let mut c = String::new();
@@ -47,76 +95,30 @@ fn read_config() {
         .expect("Failed to read file");
 
     let content = if c.is_empty() {
-        let default_toml = "[servers]\n\
-                            [server.src]\n\
-                            dst = \"0.0.0.0:8080\"\n\
-                            \n\
-                            [server.alpha]\n\
-                            dst = \"0.0.0.0:10001\"\n\
-                            [server.beta]\n\
-                            dst = \"0.0.0.0:10002\"\n\
-                            ";
-        file.write_all(default_toml.as_bytes())
+        file.write_all(DEFAULT_TOML.as_bytes())
             .expect("Failed to write config toml ");
-        default_toml
+        DEFAULT_TOML
     } else {
         &c
     }.to_string();
-    // println!("{c}");
 
     let config: Config = toml::from_str(&content)
         .expect("Failed to deserialize");
-  
-    println!("{}", config.server["src"].dst);
-    print_type_of(&config.server);
-    for (k, v) in &config.server {
-        println!("Server {k} dst {0}", v.dst);
-    }
-    println!("{:?}", config.server);
-    println!("{:#?}", config);
-    /*
-    // parse toml file
-    let parsed = c.parse::<Table>().unwrap();
-    let it = parsed.iter();
-    for val in it {
-        println!("{:?}", val);
-    }
-    let src = parsed["source"]["src"].as_str().unwrap();
-    //let dst = parsed["server"]["1"]["dst"].as_str().unwrap();
     
-    let dst = &parsed["server"].as_table();
-    
-    let p: Destination = match dst.try_into() {
-        Ok(x) => x,
-        Err(e) => {
-            eprintln!("{e}");
-            return;
-        }
-    };
-    
-    println!("{:?}", p);
+    // println!("{:#?}", config);
+    // let src = format!("{}:{}", 
+    //    config.source.host, 
+    //    config.source.port);
 
-    println!("{}", src);
-    match dst {
-        Some(x) => {
-            for v in x.iter() {
-                println!("{:?}", v);
-            }
-
-            // println!("{:?}", print_type_of(x));
-        },
-        _ => {
-            println!("Dst is not defined");
-        }
-    }
-    //println!("{:?}", dst.as_table());
-    //println!("{}", dst);
-    */
+    // println!("{src}");
+    config
 }
 
-fn tcp_listener() -> io::Result<()> {
-    let listener = TcpListener::bind(HOST)?;
+fn tcp_listener(conf: Arc<Config>) -> io::Result<()> {
+    let listener = TcpListener::bind(HOST)
+        .expect("Failed to bind to TCP");
     
+    println!("Listen {}", HOST);
     let mut i: usize = 0;
     for stream in listener.incoming() {
         match stream {
@@ -137,7 +139,8 @@ fn tcp_listener() -> io::Result<()> {
 fn udp_listener() {
     let socket = UdpSocket::bind(HOST)
         .expect("Couldn't bind to addr");
-
+    
+    println!("Listen UDP");
     let mut buf = [0; MSG_SIZE];
     // print_type_of(&buf);
     loop {
@@ -186,6 +189,7 @@ fn round_robin(i: usize) -> &'static str {
 }
 
 fn forward(msg: &[u8], i: usize) -> io::Result<()> {
+    println!("{:?}", msg);
     let host = DST[0];
     let mut stream = TcpStream::connect(host)?;
 
