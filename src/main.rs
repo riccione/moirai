@@ -1,5 +1,4 @@
 use std::net::{SocketAddr, TcpListener, TcpStream, UdpSocket};
-// Read
 use std::io::{self, BufRead, Write};
 use std::str;
 use std::thread;
@@ -7,18 +6,13 @@ use std::sync::Arc;
 use std::time::Duration;
 
 mod config;
+mod d;
 
 const MSG_SIZE: usize = 1024;
-//const DST: [&str; 2] = ["0.0.0.0:10001", "0.0.0.0:10002"]; // remove
 
 fn main() {
-    //let conf = Arc::new(read_config());
     let conf = Arc::new(config::read_config());
 
-    //let c = config::read_config();
-    //println!("{:#?}", c);
-    // println!("dst size: {}", conf.server.len());
-    
     let c = Arc::clone(&conf);
     
     // for debug only
@@ -96,7 +90,7 @@ fn read_data(mut x: TcpStream, i: usize, conf: Arc<config::Config>) {
             // for debug only
             if conf.main.verbose {
                 println!("{:?}", x);
-                // print_bytes(x);
+                // d::_print_bytes(x);
             }
             if x.len() > 0 {
                 let _ = forward(x, conf, i);
@@ -106,25 +100,6 @@ fn read_data(mut x: TcpStream, i: usize, conf: Arc<config::Config>) {
             eprintln!("{e}");
         }
     }
-}
-
-// for debug only
-// convert bytes to utf8 and prints
-fn _print_bytes(buf: &[u8]) {
-    let received = str::from_utf8(&buf);
-    match received {
-        Ok(x) => {
-            println!("{x}");
-        }
-        Err(e) => {
-            eprintln!("{e}");
-        }
-    }
-}
-
-// for debug only
-fn _print_type_of<T>(_: &T) {
-    println!("{}", std::any::type_name::<T>())
 }
 
 fn _check_dst_health(host: &str) -> bool {
