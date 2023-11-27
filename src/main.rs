@@ -102,22 +102,34 @@ fn read_data(mut x: TcpStream, i: usize, conf: Arc<config::Config>) {
     }
 }
 
-fn _check_dst_health(host: &str) -> bool {
+fn check_dst_health(host: &str) -> bool {
     let server: SocketAddr = host
         .parse()
         .expect("Unable to parse socket address");
     match TcpStream::connect_timeout(&server, Duration::from_secs(2)) {
         Ok(_) => true,
-        Err(_e) => false,
+        Err(e) => {
+            eprintln!("Failed to connect. Error: {}", e);
+            false
+        }
     }
 }
 
 fn round_robin(dst: &Vec<config::Server>, i: usize) -> String {// &'static str {
-    let x = &dst[i % dst.len()];
-    let host = format!("{}:{}",
-        x.host,
-        x.port);
-    host
+    let l = dst.len();
+    let mut il: usize = i; 
+    for _ in 0..l {
+        let x = &dst[il % l];
+        let host = format!("{}:{}",
+            x.host,
+            x.port);
+        if check_dst_health(&host) {
+            return host;
+        }
+        il += 1;
+    }
+    panic!("Failed to connect to any dst server. All servers don't listen");
+    //host
 }
 
 fn forward(msg: &[u8], conf: Arc<config::Config>, i: usize) -> io::Result<()> {
